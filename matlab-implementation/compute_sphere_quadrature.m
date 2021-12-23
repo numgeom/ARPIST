@@ -1,4 +1,4 @@
-function [pnts, ws] = compute_sphere_quadrature(xs, surfs, ...
+function [pnts, ws, ptr] = compute_sphere_quadrature(xs, surfs, ...
         h1, deg1, h2, deg2)
     % This function is used to generate quadrature points and corresponding
     % weights on a sphere.
@@ -12,13 +12,13 @@ function [pnts, ws] = compute_sphere_quadrature(xs, surfs, ...
     %           may look like:
     %           [1, 2, 3, 0; 2, 1, 4, 5]
     %           123 is the triangle and 2145 is the quadrilateral.
-    %   h1      the smaller threshold.
-    %           If the maximum edge length of a cell is lower than h1, we would
-    %           apply degree-(deg1) quadrature rule for this cell.
+    %   h1      the smaller relative threshold.
+    %           If the maximum edge length of a cell is lower than radius*h1,
+    %           we would apply degree-(deg1) quadrature rule for this cell.
     %   deg1    the smaller degree
-    %   h2      the larger threshold.
+    %   h2      the larger relative threshold.
     %           We would split a cell until the maximum edge length of the sub
-    %           cells is lower than h2.
+    %           cells is lower than radius*h2.
     %           Once the maximum edge length locates
     %           within [h1, h2), we would apply degree-(deg2) quadrature rule
     %           for this cell.
@@ -27,29 +27,46 @@ function [pnts, ws] = compute_sphere_quadrature(xs, surfs, ...
     % OUTPUT:
     %   pnts    coordinates of quadrature points, nx3
     %   ws      corresponding weights for quadrature points, nx1
+    %   ptr     pointer for the first quadrature points in each element, nx1
+    %           All the quadrature point ids for element fid would be
+    %           ptr(fid):ptr(fid+1)-1
 
     if (nargin < 3); h1 = 0.004; end
     if (nargin < 4); deg1 = int32(4); end
     if (nargin < 5); h2 = 0.05; end
     if (nargin < 6); deg2 = int32(8); end
 
+    %% radius of the sphere
+    r = norm(xs(1, :));
+
+    for vid = 2:size(xs, 1)
+        assert(abs(norm(xs(vid, :)) - r) < 2e-6, 'The input mesh is not a sphere');
+    end
+
+    %% Initialization
     index = 0;
     nf = size(surfs, 1);
     max_nv = max(1e6, nf * 6);
+
     pnts = zeros(max_nv, 3);
     ws = zeros(max_nv, 1);
     nv_surf = size(surfs, 2);
+    ptr = zeros(nf + 1, 1, 'int32');
 
+    % go through all the faces
     for fid = 1:nf
+        ptr(fid) = index + 1;
         nhe = nv_surf;
         while (surfs(fid, nhe) <= 0); nhe = nhe - 1; end
         if (nhe < 3); continue; end
 
+        % split each element into several spherical triangles
         for j = 2:nhe - 1
             lvids = [1, j, j + 1];
-            pnts_tri = xs(surfs(fid, lvids), :);
+            pnts_tri = xs(surfs(fid, lvids), :) / r;
             h = max_edge_length(pnts_tri);
 
+            % generate quadrature points
             if (h < h1)
                 [pnts, ws, index] = quadrature_sphere_tri( ...
                     pnts_tri, [1, 2, 3], deg1, pnts, ws, index);
@@ -65,8 +82,9 @@ function [pnts, ws] = compute_sphere_quadrature(xs, surfs, ...
 
     end
 
-    pnts = pnts(1:index, :);
-    ws = ws(1:index, :);
+    pnts = r * pnts(1:index, :);
+    ws = (r * r) * ws(1:index, :);
+    ptr(nf + 1) = index + 1;
 end
 
 function h = max_edge_length(xs)
