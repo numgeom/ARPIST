@@ -9,7 +9,6 @@ which will use the best setting automatically to find cell integration and areas
 
 """
 
-import math as mt
 import numpy as np
 import numba
 
@@ -70,15 +69,15 @@ def compute_sphere_quadrature(xs, elems, h1=0.004, deg1=4, h2=0.05, deg2=8):
             # generate quadrature points
             if h < h1:
                 index = _quadrature_sphere_tri(
-                    pnts_tri, [1, 2, 3], deg1, pnts, ws, index
+                    pnts_tri, np.array([[0, 1, 2]]), deg1, pnts, ws, index
                 )
             elif h < h2:
                 index = _quadrature_sphere_tri(
-                    pnts_tri, [1, 2, 3], deg2, pnts, ws, index
+                    pnts_tri, np.array([[0, 1, 2]]), deg2, pnts, ws, index
                 )
             else:
                 index = _quadrature_sphere_tri_split(
-                    pnts_tri, [1, 2, 3], h2, deg2, pnts, ws, index
+                    pnts_tri, np.array([[0, 1, 2]]), h2, deg2, pnts, ws, index
                 )
 
     pnts = r * pnts[:index]
@@ -127,7 +126,7 @@ def _cross(a, b):
     )
 
 
-@numba.njit(["Tuple((f8[:],f8[:,:]))({0})".format(x) for x in ("i4", "i8")], **NB_OPTS)
+# @numba.njit(["Tuple((f8[:],f8[:,:]))({0})".format(x) for x in ("i4", "i8")], **NB_OPTS)
 def _fe2_quadrule(deg):
     """Quadrature rule used in this function
 
