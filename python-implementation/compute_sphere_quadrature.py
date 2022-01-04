@@ -46,9 +46,9 @@ def compute_sphere_quadrature(xs, elems, h1=0.004, deg1=4, h2=0.05, deg2=8):
     nv_surf = elems.shape[1]
     max_nv = max(1000000, nf * 6)
 
-    pnts = [[0] * 3 for pid in range(max_nv)]
-    ws = [0 for pid in range(max_nv)]
-    offset = [0 for fid in range(nf + 1)]
+    pnts = np.array([[0.] * 3 for pid in range(max_nv)])
+    ws = np.array([0. for pid in range(max_nv)])
+    offset = np.array([0 for fid in range(nf + 1)])
 
     # go through all the faces
     for fid in range(nf):
@@ -62,7 +62,7 @@ def compute_sphere_quadrature(xs, elems, h1=0.004, deg1=4, h2=0.05, deg2=8):
 
         # split each element into several spherical triangles
         for j in range(1, nhe):
-            lvids = [1, j, j + 1]
+            lvids = [0, j, j + 1]
             pnts_tri = xs[elems[fid, lvids]] / r
             h = _compute_max_edge_length(pnts_tri)
 
@@ -83,6 +83,7 @@ def compute_sphere_quadrature(xs, elems, h1=0.004, deg1=4, h2=0.05, deg2=8):
     pnts = r * pnts[:index]
     ws = (r * r) * ws[:index]
     offset[nf] = index
+    return pnts, ws, offset
 
 
 @numba.njit(["{0}({0}[:])".format("f8")], **NB_OPTS)
@@ -950,13 +951,13 @@ def _quadrature_sphere_tri(xs, elems, deg, pnts, ws, index):
     """
 
     nf = elems.shape[0]
-    pnts_q = np.zeros((1, 3))
+    pnts_q = np.zeros((1, 3), dtype=np.float64)
     ws0, cs0 = _fe2_quadrule(deg)
     nqp = ws0.shape[0]
     # cs=[ones(nqp,1)-cs(:,1)-cs(:,2), cs]
     cs = np.array(
         [
-            [1 - cs0[row1, 0] - cs0[row1, 1], cs0[row1, 0], cs0[row1, 1]]
+            [1.0 - cs0[row1, 0] - cs0[row1, 1], cs0[row1, 0], cs0[row1, 1]]
             for row1 in range(nqp)
         ]
     )
@@ -1016,11 +1017,11 @@ def _quadrature_sphere_tri_split(xs, elems, tol, deg, pnts, ws, index):
     if h > tol:
 
         # split one element
-        surf_fid = np.array([[1, 4, 6], [6, 4, 5], [5, 4, 2], [6, 5, 3]])
+        surf_fid = np.array([[0, 3, 5], [5, 3, 4], [4, 3, 1], [5, 4, 2]])
         pnts_vor = np.zeros((6, 3), dtype=xs.dtype)
 
         for fid in range(nf):
-            pnts_vor[:4] = xs[elems[fid, :4]]
+            pnts_vor[:3] = xs[elems[fid, :3]]
 
             # insert points
             for j in range(3):
