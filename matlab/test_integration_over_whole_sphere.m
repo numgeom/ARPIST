@@ -4,7 +4,6 @@ function test_integration_over_whole_sphere()
 % To be noted that, the three test meshes we provided are extremely coarse to avoiding uploading large files into github.
 
 %% add path for this demo
-addpath('../matlab-implementation');
 addpath('../meshes');
 %% parameters
 % test degrees
