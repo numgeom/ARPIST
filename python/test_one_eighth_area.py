@@ -1,14 +1,11 @@
-import sys
 import numpy as np
-sys.path.insert(1, '/home/liyipeng/ARPIST/python-implementation')
-
-import spherical_integration as si
+import compute_sphere_quadrature as csq
 import math
 
 
 xs = np.array([[1.,0.,0.], [0.,1.,0.], [0.,0.,1.]])
 elems = np.array([[0, 1, 2]])
-ARPIST_int = si.spherical_integration(xs, elems)
+ARPIST_int = csq.spherical_integration(xs, elems)
 exact_int = math.pi/2
 
 print("Numerical Integration: ", ARPIST_int)

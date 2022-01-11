@@ -17,6 +17,27 @@ import numba
 _TYPE_MAP = [("f8", "i4"), ("f8", "i8")]
 NB_OPTS = {"nogil": True}
 
+def spherical_integration(xs, elems, fun_handle=lambda _: 1.0, deg=-1):
+
+    # generate quadrature points
+    # This part could be reused for multiple functions
+    if deg > 0:
+        # if degree is set up, use the given degree
+        pnts, ws, offset = compute_sphere_quadrature(xs, elems, 100, deg)
+    else:
+        # if degree is not set up, use our configuration for adaptive ARPIST
+        pnts, ws, offset = compute_sphere_quadrature(xs, elems)
+
+    # evaluate function values on each element
+    # This part could be modified to deal with multiple functions
+    nf = elems.shape[0]
+    fs = [0] * nf
+
+    for fid in range(nf):
+        for pid in range(offset[fid], offset[fid + 1]):
+            fs[fid] += fun_handle(pnts[pid]) * ws[pid]
+
+    return fs
 
 def compute_sphere_quadrature(xs, elems, h1=0.004, deg1=4, h2=0.05, deg2=8):
     """Find cell integration for test function f on sphere of a mixed mesh.
@@ -46,8 +67,8 @@ def compute_sphere_quadrature(xs, elems, h1=0.004, deg1=4, h2=0.05, deg2=8):
     nv_surf = elems.shape[1]
     max_nv = max(1000000, nf * 6)
 
-    pnts = np.array([[0.] * 3 for pid in range(max_nv)])
-    ws = np.array([0. for pid in range(max_nv)])
+    pnts = np.array([[0.0] * 3 for pid in range(max_nv)])
+    ws = np.array([0.0 for pid in range(max_nv)])
     offset = np.array([0 for fid in range(nf + 1)])
 
     # go through all the faces
@@ -125,6 +146,132 @@ def _cross(a, b):
             a[0] * b[1] - a[1] * b[0],
         ]
     )
+
+
+def _quadrature_sphere_tri(xs, elems, deg, pnts, ws, index):
+    """Find cell integration for test function f on sphere of a mixed mesh.
+
+    Parameters
+    ----------
+    xs:             n-by-3 array single or double, coordinates of vertices
+    elems:          n-by-m array integer, connectivity table
+    f_D:            a function handle that takes a coordinate and a value
+    deg:            integer, degree
+
+    Returns
+    ----------
+    cell_int:       n-by-1 array single or double, integration on elements
+    areas:          n-by-1 array single or double, areas of elements
+    """
+
+    nf = elems.shape[0]
+    pnts_q = np.zeros((1, 3), dtype=np.float64)
+    ws0, cs0 = _fe2_quadrule(deg)
+    nqp = ws0.shape[0]
+    # cs=[ones(nqp,1)-cs(:,1)-cs(:,2), cs]
+    cs = np.array(
+        [
+            [1.0 - cs0[row1, 0] - cs0[row1, 1], cs0[row1, 0], cs0[row1, 1]]
+            for row1 in range(nqp)
+        ]
+    )
+
+    # enlarge the size of quadrature points buffer if inadequate
+    if index + nf * nqp > len(ws):
+        n_new = 2 * len(ws) + nf * nqp
+        ws.resize(n_new, refcheck=False)
+        pnts.resize((n_new, 3), refcheck=False)
+
+    for fid in range(nf):
+        # absolute value of triple product of x1, x2, x3.
+        tri_pro = abs(
+            _compute_dot(
+                xs[elems[fid, 0]], _cross(xs[elems[fid, 1]], xs[elems[fid, 2]])
+            )
+        )
+
+        # global coordinate of quadrature points on triangle x1x2x3
+        for q in range(nqp):
+            pnts_q = (
+                cs[q, 0] * xs[elems[fid, 0]]
+                + cs[q, 1] * xs[elems[fid, 1]]
+                + cs[q, 2] * xs[elems[fid, 2]]
+            )
+
+            nrm_q = _compute_norm(pnts_q)
+            # project quadrature points on sphere
+            pnts[index] = pnts_q / nrm_q
+            # weights x Jacobi
+            ws[index] = ws0[q] * tri_pro / (nrm_q ** 3)
+            index = index + 1
+
+    return index
+
+
+def _quadrature_sphere_tri_split(xs, elems, tol, deg, pnts, ws, index):
+    """Find cell integration for test function f on sphere of a mixed mesh.
+    It will split the mesh until we can get to machine precision.
+
+    Parameters
+    ----------
+    xs:             n-by-3 array single or double, coordinates of vertices
+    elems:          n-by-m array integer, connectivity table
+    f_D:            a function handle that takes a coordinate and a value
+    deg:            integer, degree
+
+    Returns
+    ----------
+    cell_int:       n-by-1 array single or double, integration on elements
+    areas:          n-by-1 array single or double, areas of elements
+    """
+
+    nf = elems.shape[0]
+    h = _compute_max_edge_length(xs[elems[0]])
+
+    if h > tol:
+
+        # split one element
+        surf_fid = np.array([[0, 3, 5], [5, 3, 4], [4, 3, 1], [5, 4, 2]])
+        pnts_vor = np.zeros((6, 3), dtype=xs.dtype)
+
+        for fid in range(nf):
+            pnts_vor[:3] = xs[elems[fid, :3]]
+
+            # insert points
+            for j in range(3):
+                index_local = j + 3
+                pnts_vor[index_local] = (pnts_vor[j] + pnts_vor[_next_leid(j, 3)]) / 2.0
+                pnts_vor[index_local] = pnts_vor[index_local] / _compute_norm(
+                    pnts_vor[index_local]
+                )
+
+            # recursive
+            index = _quadrature_sphere_tri_split(
+                pnts_vor, surf_fid, tol, deg, pnts, ws, index
+            )
+    else:
+        index = _quadrature_sphere_tri(xs, elems, deg, pnts, ws, index)
+
+    return index
+
+
+@numba.njit(["{0}({0}[:,:])".format("f8")], **NB_OPTS)
+def _compute_max_edge_length(xs):
+    # compute maximum edge length of elements
+
+    return max(
+        _compute_norm(xs[0] - xs[1]),
+        _compute_norm(xs[1] - xs[2]),
+        _compute_norm(xs[2] - xs[0]),
+    )
+
+
+def _next_leid(i, n):
+    i = i + 1
+    if i == n:
+        return 0
+    else:
+        return i
 
 
 # @numba.njit(["Tuple((f8[:],f8[:,:]))({0})".format(x) for x in ("i4", "i8")], **NB_OPTS)
@@ -932,129 +1079,3 @@ def _fe2_quadrule(deg):
             ]
         )
     return ws, cs
-
-
-def _quadrature_sphere_tri(xs, elems, deg, pnts, ws, index):
-    """Find cell integration for test function f on sphere of a mixed mesh.
-
-    Parameters
-    ----------
-    xs:             n-by-3 array single or double, coordinates of vertices
-    elems:          n-by-m array integer, connectivity table
-    f_D:            a function handle that takes a coordinate and a value
-    deg:            integer, degree
-
-    Returns
-    ----------
-    cell_int:       n-by-1 array single or double, integration on elements
-    areas:          n-by-1 array single or double, areas of elements
-    """
-
-    nf = elems.shape[0]
-    pnts_q = np.zeros((1, 3), dtype=np.float64)
-    ws0, cs0 = _fe2_quadrule(deg)
-    nqp = ws0.shape[0]
-    # cs=[ones(nqp,1)-cs(:,1)-cs(:,2), cs]
-    cs = np.array(
-        [
-            [1.0 - cs0[row1, 0] - cs0[row1, 1], cs0[row1, 0], cs0[row1, 1]]
-            for row1 in range(nqp)
-        ]
-    )
-
-    # enlarge the size of quadrature points buffer if inadequate
-    if index + nf * nqp > len(ws):
-        n_new = 2 * len(ws) + nf * nqp
-        ws.resize(n_new, refcheck=False)
-        pnts.resize((n_new, 3), refcheck=False)
-
-    for fid in range(nf):
-        # absolute value of triple product of x1, x2, x3.
-        tri_pro = abs(
-            _compute_dot(
-                xs[elems[fid, 0]], _cross(xs[elems[fid, 1]], xs[elems[fid, 2]])
-            )
-        )
-
-        # global coordinate of quadrature points on triangle x1x2x3
-        for q in range(nqp):
-            pnts_q = (
-                cs[q, 0] * xs[elems[fid, 0]]
-                + cs[q, 1] * xs[elems[fid, 1]]
-                + cs[q, 2] * xs[elems[fid, 2]]
-            )
-
-            nrm_q = _compute_norm(pnts_q)
-            # project quadrature points on sphere
-            pnts[index] = pnts_q / nrm_q
-            # weights x Jacobi
-            ws[index] = ws0[q] * tri_pro / (nrm_q ** 3)
-            index = index + 1
-
-    return index
-
-
-def _quadrature_sphere_tri_split(xs, elems, tol, deg, pnts, ws, index):
-    """Find cell integration for test function f on sphere of a mixed mesh.
-    It will split the mesh until we can get to machine precision.
-
-    Parameters
-    ----------
-    xs:             n-by-3 array single or double, coordinates of vertices
-    elems:          n-by-m array integer, connectivity table
-    f_D:            a function handle that takes a coordinate and a value
-    deg:            integer, degree
-
-    Returns
-    ----------
-    cell_int:       n-by-1 array single or double, integration on elements
-    areas:          n-by-1 array single or double, areas of elements
-    """
-
-    nf = elems.shape[0]
-    h = _compute_max_edge_length(xs[elems[0]])
-
-    if h > tol:
-
-        # split one element
-        surf_fid = np.array([[0, 3, 5], [5, 3, 4], [4, 3, 1], [5, 4, 2]])
-        pnts_vor = np.zeros((6, 3), dtype=xs.dtype)
-
-        for fid in range(nf):
-            pnts_vor[:3] = xs[elems[fid, :3]]
-
-            # insert points
-            for j in range(3):
-                index_local = j + 3
-                pnts_vor[index_local] = (pnts_vor[j] + pnts_vor[_next_leid(j, 3)]) / 2.0
-                pnts_vor[index_local] = pnts_vor[index_local] / _compute_norm(
-                    pnts_vor[index_local]
-                )
-
-            # recursive
-            index = _quadrature_sphere_tri_split(
-                pnts_vor, surf_fid, tol, deg, pnts, ws, index
-            )
-    else:
-        index = _quadrature_sphere_tri(xs, elems, deg, pnts, ws, index)
-
-    return index
-
-
-@numba.njit(["{0}({0}[:,:])".format("f8")], **NB_OPTS)
-def _compute_max_edge_length(xs):
-    # compute maximum edge length of elements
-
-    return max(
-        _compute_norm(xs[0] - xs[1]),
-        _compute_norm(xs[1] - xs[2]),
-        _compute_norm(xs[2] - xs[0]),
-    )
-
-
-def _next_leid(i, n):
-    i = i + 1
-    if i == n:
-        return 0
-    else:
-        return i
