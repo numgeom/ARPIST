@@ -12,10 +12,13 @@ which will use the best setting automatically to find cell integration and areas
 import numpy as np
 import numba
 
+_ws_deg = []
+_cs_deg = []
 
 # _TYPE_MAP = [("f4", "i4"), ("f8", "i4"), ("f4", "i8"), ("f8", "i8")]
 _TYPE_MAP = [("f8", "i4"), ("f8", "i8")]
 NB_OPTS = {"nogil": True}
+
 
 def spherical_integration(xs, elems, fun_handle=lambda _: 1.0, deg=-1):
 
@@ -38,6 +41,7 @@ def spherical_integration(xs, elems, fun_handle=lambda _: 1.0, deg=-1):
             fs[fid] += fun_handle(pnts[pid]) * ws[pid]
 
     return fs
+
 
 def compute_sphere_quadrature(xs, elems, h1=0.004, deg1=4, h2=0.05, deg2=8):
     """Find cell integration for test function f on sphere of a mixed mesh.
@@ -166,15 +170,8 @@ def _quadrature_sphere_tri(xs, elems, deg, pnts, ws, index):
 
     nf = elems.shape[0]
     pnts_q = np.zeros((1, 3), dtype=np.float64)
-    ws0, cs0 = _fe2_quadrule(deg)
+    ws0, cs = _take_fe2_quadrule(deg)
     nqp = ws0.shape[0]
-    # cs=[ones(nqp,1)-cs(:,1)-cs(:,2), cs]
-    cs = np.array(
-        [
-            [1.0 - cs0[row1, 0] - cs0[row1, 1], cs0[row1, 0], cs0[row1, 1]]
-            for row1 in range(nqp)
-        ]
-    )
 
     # enlarge the size of quadrature points buffer if inadequate
     if index + nf * nqp > len(ws):
@@ -274,8 +271,26 @@ def _next_leid(i, n):
         return i
 
 
+def _take_fe2_quadrule(deg):
+    if deg >= len(_ws_deg):
+        for deg0 in range(len(_ws_deg), deg + 1):
+            ws0, cs0 = _init_fe2_quadrule(deg0)
+            nqp = ws0.shape[0]
+            # cs=[ones(nqp,1)-cs(:,1)-cs(:,2), cs]
+            cs = np.array(
+                [
+                    [1.0 - cs0[row1, 0] - cs0[row1, 1], cs0[row1, 0], cs0[row1, 1]]
+                    for row1 in range(nqp)
+                ]
+            )
+            _ws_deg.append(ws0)
+            _cs_deg.append(cs)
+
+    return _ws_deg[deg], _cs_deg[deg]
+
+
 # @numba.njit(["Tuple((f8[:],f8[:,:]))({0})".format(x) for x in ("i4", "i8")], **NB_OPTS)
-def _fe2_quadrule(deg):
+def _init_fe2_quadrule(deg):
     """Quadrature rule used in this function
 
     Parameters
@@ -291,7 +306,7 @@ def _fe2_quadrule(deg):
     if deg <= 1:
         ws = np.array([0.5])
         cs = np.array(
-            [0.3333333333333333333333333333333, 0.3333333333333333333333333333333]
+            [[0.3333333333333333333333333333333, 0.3333333333333333333333333333333]]
         )
     elif deg <= 2:
         ws = np.array(
