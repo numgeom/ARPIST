@@ -9,6 +9,8 @@ which will use the best setting automatically to find cell integration and areas
 
 """
 
+# Copyright (C) 2022 NumGeom Group at Stony Brook University
+
 import numpy as np
 import numba
 

@@ -18,6 +18,8 @@ function [fs] = spherical_integration(xs, surfs, fun_handle, deg)
 % OUTPUT:
 %   fs      function values on all the elements, nx1
 
+% Copyright (C) 2022 NumGeom Group at Stony Brook University
+
 if (nargin < 4); deg = -1; end
 
 %% generate quadrature points

@@ -32,6 +32,8 @@ function [pnts, ws, offset] = compute_sphere_quadrature(xs, surfs, ...
 %           All the quadrature point ids for element fid would be
 %           offset(fid):offset(fid+1)-1
 
+% Copyright (C) 2022 NumGeom Group at Stony Brook University
+
 if (nargin < 3); h1 = 0.004; end
 if (nargin < 4); deg1 = int32(4); end
 if (nargin < 5); h2 = 0.05; end
