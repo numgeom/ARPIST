@@ -115,7 +115,7 @@ for fid = 1:nf
     pnts_vor = xs(surfs(fid, :), :);
     
     %absulute value of triple product of x1, x2, x3.
-    tri_pro = abs(dot(pnts_vor(1, :), cross(pnts_vor(2, :), pnts_vor(3, :))));
+    tri_pro = abs(dot(pnts_vor(1, :), cross(pnts_vor(2, :) - pnts_vor(1, :), pnts_vor(3, :) - pnts_vor(1, :))));
     %global coordinate of quadrature points on triangle x1x2x3
     pnts_q = cs * pnts_vor;
     

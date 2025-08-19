@@ -2,7 +2,7 @@
 
 The module mainly supports computing areas and integration of elements on sphere
 with high accuracy. The public interface compute_sphere_quadrature is a hybrid method
-which will use the best setting automatically to find the weights and coordinates of 
+which will use the best setting automatically to find the weights and coordinates of
 quadrature points for cell integration and areas.
 
 .. moduleauthor:: Xiangmin Jiao, <xiangmin.jiao@stonybrook.edu>
@@ -185,7 +185,11 @@ def _quadrature_sphere_tri(xs, elems, deg, pnts, ws, index):
         # absolute value of triple product of x1, x2, x3.
         tri_pro = abs(
             _compute_dot(
-                xs[elems[fid, 0]], _cross(xs[elems[fid, 1]], xs[elems[fid, 2]])
+                xs[elems[fid, 0]],
+                _cross(
+                    xs[elems[fid, 1]] - xs[elems[fid, 0]],
+                    xs[elems[fid, 2]] - xs[elems[fid, 0]],
+                ),
             )
         )
 
@@ -201,7 +205,7 @@ def _quadrature_sphere_tri(xs, elems, deg, pnts, ws, index):
             # project quadrature points on sphere
             pnts[index] = pnts_q / nrm_q
             # weights x Jacobi
-            ws[index] = ws0[q] * tri_pro / (nrm_q ** 3)
+            ws[index] = ws0[q] * tri_pro / (nrm_q**3)
             index = index + 1
 
     return index
